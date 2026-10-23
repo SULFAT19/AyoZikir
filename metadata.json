@@ -1,0 +1,6 @@
+{
+  "name": "Ayo Zikir",
+  "description": "Aplikasi Zikir Islami Sehari-hari dengan penghitung tasbih interaktif, teks Arab, latin, arti, dalil shahih, dasbor admin kustomisasi, dan sinkronisasi Google Spreadsheet.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
