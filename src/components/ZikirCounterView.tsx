@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { ZikirItem } from '../types/zikir';
+import React, { useState, useEffect } from 'react';
+import { ZikirItem, RangkaianZikirEntry } from '../types/zikir';
 import { playTasbihClick, playCompletionChime, triggerHaptic } from '../utils/audio';
 import confetti from 'canvas-confetti';
 import {
@@ -12,15 +12,14 @@ import {
   CheckCircle2,
   Copy,
   Check,
-  Maximize2,
-  Minimize2,
   Type,
-  Share2,
 } from 'lucide-react';
 
 interface ZikirCounterViewProps {
   item: ZikirItem;
+  currentConfig?: RangkaianZikirEntry;
   playlistItems?: ZikirItem[];
+  playlistConfigMap?: Record<string, RangkaianZikirEntry>;
   currentIndex?: number;
   onNextZikir?: () => void;
   onPrevZikir?: () => void;
@@ -32,7 +31,9 @@ interface ZikirCounterViewProps {
 
 export const ZikirCounterView: React.FC<ZikirCounterViewProps> = ({
   item,
+  currentConfig,
   playlistItems = [],
+  playlistConfigMap = {},
   currentIndex = 0,
   onNextZikir,
   onPrevZikir,
@@ -46,9 +47,39 @@ export const ZikirCounterView: React.FC<ZikirCounterViewProps> = ({
   const [isCopied, setIsCopied] = useState(false);
   const [isCompletedCelebrated, setIsCompletedCelebrated] = useState(false);
 
-  const target = item.targetCount || 1;
-  const isTargetReached = count >= target;
-  const progressPercent = Math.min(100, Math.round((count / target) * 100));
+  // Configuration from active rangkaian or master zikir
+  const activeCfg = playlistConfigMap[item.id] || currentConfig;
+
+  // Has target count?
+  const hasTarget =
+    activeCfg?.hasTargetCount !== undefined
+      ? activeCfg.hasTargetCount
+      : item.hasTargetCount !== undefined
+      ? item.hasTargetCount
+      : item.targetCount > 0;
+
+  const target = hasTarget
+    ? activeCfg?.customTargetCount !== undefined && activeCfg.customTargetCount > 0
+      ? activeCfg.customTargetCount
+      : item.targetCount > 0
+      ? item.targetCount
+      : 1
+    : 0;
+
+  const isTargetReached = hasTarget ? count >= target : false;
+  const progressPercent = hasTarget ? Math.min(100, Math.round((count / target) * 100)) : 100;
+
+  // Hadits & Fadhilah visibility & content (Dua kolom terpisah)
+  const hideHadits = activeCfg?.hideHadits ?? item.hideHadits ?? false;
+  const haditsText = !hideHadits && item.dalil ? item.dalil.trim() : '';
+
+  const hideFadhilah = activeCfg?.hideFadhilah ?? item.hideFadhilah ?? false;
+  const fadhilahText = !hideFadhilah
+    ? (activeCfg?.customFadhilah !== undefined && activeCfg.customFadhilah !== ''
+        ? activeCfg.customFadhilah
+        : item.fadhilah || ''
+      ).trim()
+    : '';
 
   const hasNext = playlistItems.length > 0 && currentIndex < playlistItems.length - 1;
   const nextItem = hasNext ? playlistItems[currentIndex + 1] : null;
@@ -70,7 +101,7 @@ export const ZikirCounterView: React.FC<ZikirCounterViewProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [count, target, soundEnabled, vibrateEnabled]);
+  }, [count, target, hasTarget, soundEnabled, vibrateEnabled]);
 
   // Increment counter
   const handleIncrement = () => {
@@ -81,7 +112,7 @@ export const ZikirCounterView: React.FC<ZikirCounterViewProps> = ({
     triggerHaptic(vibrateEnabled);
 
     // If reaching target
-    if (nextCount === target && !isCompletedCelebrated) {
+    if (hasTarget && nextCount === target && !isCompletedCelebrated) {
       setIsCompletedCelebrated(true);
       playCompletionChime(soundEnabled);
       triggerConfetti();
@@ -122,7 +153,10 @@ export const ZikirCounterView: React.FC<ZikirCounterViewProps> = ({
 
   // Copy Zikir
   const handleCopy = () => {
-    const textToCopy = `${item.title}\n\n${item.arabic}\n\nLatin:\n${item.latin}\n\nArti:\n${item.translation}\n\nDalil: ${item.dalil}`;
+    let textToCopy = `${item.title}\n\n${item.arabic}\n\nLatin:\n${item.latin}\n\nArti:\n${item.translation}`;
+    if (haditsText) textToCopy += `\n\nHadits: ${haditsText}`;
+    if (fadhilahText) textToCopy += `\n\nFadhilah: ${fadhilahText}`;
+
     navigator.clipboard.writeText(textToCopy);
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
@@ -138,7 +172,9 @@ export const ZikirCounterView: React.FC<ZikirCounterViewProps> = ({
   // SVG Circular progress radius
   const radius = 64;
   const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference - (progressPercent / 100) * circumference;
+  const strokeDashoffset = hasTarget
+    ? circumference - (progressPercent / 100) * circumference
+    : 0;
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-4 sm:py-6 space-y-5 animate-fade-in pb-24">
@@ -161,7 +197,15 @@ export const ZikirCounterView: React.FC<ZikirCounterViewProps> = ({
         {/* Font size toggle */}
         <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
           <button
-            onClick={() => setFontSizeLevel(fontSizeLevel === 'normal' ? 'large' : fontSizeLevel === 'large' ? 'huge' : 'normal')}
+            onClick={() =>
+              setFontSizeLevel(
+                fontSizeLevel === 'normal'
+                  ? 'large'
+                  : fontSizeLevel === 'large'
+                  ? 'huge'
+                  : 'normal'
+              )
+            }
             title="Ubah Ukuran Tulisan Arab"
             className="p-1.5 text-slate-600 hover:text-emerald-700 hover:bg-slate-100 rounded-lg text-xs font-bold flex items-center gap-1"
           >
@@ -180,12 +224,14 @@ export const ZikirCounterView: React.FC<ZikirCounterViewProps> = ({
         <div className="space-y-1 relative">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-md border border-emerald-200">
-              {item.repeatNote || `Dibaca ${target} kali`}
+              {hasTarget
+                ? item.repeatNote || `Dibaca ${target} kali`
+                : 'Tanpa Batas Bilangan'}
             </span>
             <div className="flex items-center space-x-1">
               <button
                 onClick={handleCopy}
-                title="Salin Teks Zikir & Arti"
+                title="Salin Teks Zikir, Arti & Dalil"
                 className="p-2 rounded-xl bg-slate-50 hover:bg-emerald-50 border border-slate-200 text-slate-600 hover:text-emerald-800 text-xs transition-colors"
               >
                 {isCopied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
@@ -228,34 +274,49 @@ export const ZikirCounterView: React.FC<ZikirCounterViewProps> = ({
           </p>
         </div>
 
-        {/* Hadith / Dalil Box */}
-        {item.dalil && (
-          <div className="bg-amber-50/70 border-l-4 border-amber-500 p-3.5 sm:p-4 rounded-r-2xl space-y-1 text-xs sm:text-sm text-amber-900">
+        {/* KOLOM TERPISAH 1: HADITS & DALIL RIWAYAT */}
+        {haditsText && (
+          <div className="bg-amber-50/70 border-l-4 border-amber-500 p-4 rounded-r-2xl space-y-1.5 text-xs sm:text-sm text-amber-900 shadow-xs">
             <div className="font-bold flex items-center gap-1.5 text-amber-950">
               <BookOpen className="w-4 h-4 text-amber-600 shrink-0" />
-              <span>Dalil & Keutamaan Shahih:</span>
+              <span>Hadits Riwayat & Dalil:</span>
             </div>
             <p className="leading-relaxed text-amber-900/90 pl-5">
-              {item.dalil}
+              {haditsText}
             </p>
-            {item.fadhilah && (
-              <p className="font-semibold text-emerald-800 text-xs pl-5 pt-0.5">
-                ✨ Fadhilah: {item.fadhilah}
-              </p>
-            )}
+          </div>
+        )}
+
+        {/* KOLOM TERPISAH 2: FADHILAH & KEUTAMAAN KHUSUS (TERPISAH DARI HADITS) */}
+        {fadhilahText && (
+          <div className="bg-emerald-50/80 border-l-4 border-emerald-600 p-4 rounded-r-2xl space-y-1.5 text-xs sm:text-sm text-emerald-950 shadow-xs">
+            <div className="font-bold flex items-center gap-1.5 text-emerald-900">
+              <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>Fadhilah & Keutamaan Khusus:</span>
+            </div>
+            <p className="leading-relaxed text-emerald-900/90 pl-5 font-medium">
+              {fadhilahText}
+            </p>
           </div>
         )}
       </div>
 
       {/* TACTILE DIGITAL TASBIH COUNTER SECTION */}
       <div className="bg-white rounded-3xl p-6 sm:p-8 border border-emerald-200 shadow-xl shadow-emerald-900/10 space-y-5 text-center relative overflow-hidden">
-        {/* Target Reached Banner */}
-        {isTargetReached && (
+        {/* Target Reached Banner (hanya jika memiliki target hitungan) */}
+        {hasTarget && isTargetReached && (
           <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white p-3.5 rounded-2xl shadow-lg flex items-center justify-center gap-2 animate-bounce-short">
             <Sparkles className="w-5 h-5 text-amber-300" />
             <span className="font-bold text-sm sm:text-base">
               Alhamdulillah! Target {target}x Telah Tercapai
             </span>
+          </div>
+        )}
+
+        {/* Banner untuk zikir tanpa target bilangan */}
+        {!hasTarget && (
+          <div className="bg-emerald-50 text-emerald-800 border border-emerald-200 p-2.5 rounded-2xl flex items-center justify-center gap-2 text-xs font-semibold">
+            <span>✨ Zikir ini disetting tanpa batas bilangan. Silakan baca dan hayati dengan khusyuk.</span>
           </div>
         )}
 
@@ -284,7 +345,13 @@ export const ZikirCounterView: React.FC<ZikirCounterViewProps> = ({
                 strokeDasharray={circumference}
                 strokeDashoffset={strokeDashoffset}
                 strokeLinecap="round"
-                stroke={isTargetReached ? '#059669' : '#10b981'}
+                stroke={
+                  !hasTarget
+                    ? '#059669'
+                    : isTargetReached
+                    ? '#059669'
+                    : '#10b981'
+                }
                 fill="transparent"
               />
             </svg>
@@ -298,7 +365,7 @@ export const ZikirCounterView: React.FC<ZikirCounterViewProps> = ({
                 {count}
               </div>
               <div className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-                Target: {target}x
+                {hasTarget ? `Target: ${target}x` : 'Hitungan Bebas'}
               </div>
             </div>
           </div>
@@ -309,14 +376,20 @@ export const ZikirCounterView: React.FC<ZikirCounterViewProps> = ({
           <button
             onClick={handleIncrement}
             className={`w-full py-5 sm:py-6 rounded-2xl text-white font-extrabold text-lg sm:text-xl shadow-xl active:scale-[0.98] transition-all flex flex-col items-center justify-center gap-1 cursor-pointer select-none ${
-              isTargetReached
+              hasTarget && isTargetReached
                 ? 'bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 shadow-emerald-700/25 ring-4 ring-emerald-300/40'
                 : 'bg-gradient-to-r from-emerald-700 via-teal-700 to-emerald-800 hover:from-emerald-600 hover:to-teal-600 shadow-emerald-800/25'
             }`}
           >
             <span className="flex items-center gap-2">
               <span className="text-2xl">📿</span>
-              <span>{isTargetReached ? '+ Lanjut Hitung Lagi' : 'SENTUH UNTUK HITUNG'}</span>
+              <span>
+                {hasTarget
+                  ? isTargetReached
+                    ? '+ Lanjut Hitung Lagi'
+                    : 'SENTUH UNTUK HITUNG'
+                  : 'SENTUH UNTUK HITUNG (OPSIONAL)'}
+              </span>
             </span>
             <span className="text-[11px] font-normal text-emerald-200/90 hidden sm:inline">
               (Bisa juga tekan tombol Spasi di keyboard)
@@ -347,8 +420,8 @@ export const ZikirCounterView: React.FC<ZikirCounterViewProps> = ({
           </div>
         </div>
 
-        {/* When target is reached, action buttons appear prominently */}
-        {isTargetReached && (
+        {/* ACTION BUTTONS: Jika target tercapai ATAU jika zikir disetting TANPA JUMLAH BILANGAN, tombol lanjut/selesai langsung aktif */}
+        {(isTargetReached || !hasTarget) && (
           <div className="pt-4 border-t border-slate-100 space-y-2 animate-fade-in">
             {hasNext ? (
               <button

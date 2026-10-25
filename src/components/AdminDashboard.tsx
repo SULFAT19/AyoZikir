@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   ZikirItem,
   RangkaianItem,
+  RangkaianZikirEntry,
   GoogleSheetConfig,
 } from '../types/zikir';
 import {
@@ -34,6 +35,10 @@ import {
   CheckSquare,
   Square,
   Sparkles,
+  Sliders,
+  ChevronDown,
+  ChevronUp,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { DEFAULT_ZIKIR_LIST, DEFAULT_RANGKAIAN_LIST } from '../data/defaultZikir';
 
@@ -48,15 +53,6 @@ interface AdminDashboardProps {
   sheetConfig: GoogleSheetConfig;
   onUpdateSheetConfig: (config: GoogleSheetConfig) => void;
 }
-
-const COLOR_THEMES = [
-  { id: 'emerald', label: 'Hijau Zamrud', bg: 'bg-emerald-50 text-emerald-800 border-emerald-300' },
-  { id: 'amber', label: 'Kuning Amber', bg: 'bg-amber-50 text-amber-800 border-amber-300' },
-  { id: 'indigo', label: 'Biru Indigo', bg: 'bg-indigo-50 text-indigo-800 border-indigo-300' },
-  { id: 'teal', label: 'Tosika Teal', bg: 'bg-teal-50 text-teal-800 border-teal-300' },
-  { id: 'purple', label: 'Ungu Lavender', bg: 'bg-purple-50 text-purple-800 border-purple-300' },
-  { id: 'rose', label: 'Mawar Rose', bg: 'bg-rose-50 text-rose-800 border-rose-300' },
-];
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   isOpen,
@@ -82,6 +78,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [isRangkaianModalOpen, setIsRangkaianModalOpen] = useState(false);
   const [editingRangkaian, setEditingRangkaian] = useState<RangkaianItem | null>(null);
   const [isNewRangkaian, setIsNewRangkaian] = useState(false);
+  const [rangkaianModalSubTab, setRangkaianModalSubTab] = useState<'info' | 'select' | 'customize'>('select');
 
   // Syncing status
   const [isSyncing, setIsSyncing] = useState(false);
@@ -133,6 +130,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       dalil: '',
       fadhilah: '',
       targetCount: 33,
+      hasTargetCount: true,
+      hideHadits: false,
+      hideFadhilah: false,
       repeatNote: 'Dibaca 33x',
     };
     setEditingItem(newItem);
@@ -141,7 +141,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const handleEditZikir = (item: ZikirItem) => {
-    setEditingItem({ ...item });
+    setEditingItem({
+      ...item,
+      hasTargetCount: item.hasTargetCount !== undefined ? item.hasTargetCount : item.targetCount > 0,
+      hideHadits: item.hideHadits ?? false,
+      hideFadhilah: item.hideFadhilah ?? false,
+    });
     setIsNewItem(false);
     setIsEditingModalOpen(true);
   };
@@ -150,11 +155,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     e.preventDefault();
     if (!editingItem) return;
 
+    const itemToSave: ZikirItem = {
+      ...editingItem,
+      targetCount: editingItem.hasTargetCount === false ? 0 : Number(editingItem.targetCount) || 1,
+      order: Number(editingItem.order) || zikirItems.length + 1,
+    };
+
     let updatedList: ZikirItem[];
     if (isNewItem) {
-      updatedList = [...zikirItems, { ...editingItem, order: Number(editingItem.order) || zikirItems.length + 1 }];
+      updatedList = [...zikirItems, itemToSave];
     } else {
-      updatedList = zikirItems.map((item) => (item.id === editingItem.id ? editingItem : item));
+      updatedList = zikirItems.map((item) => (item.id === itemToSave.id ? itemToSave : item));
     }
 
     onUpdateZikirItems(updatedList);
@@ -171,11 +182,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const updatedList = zikirItems.filter((item) => item.id !== id);
       onUpdateZikirItems(updatedList);
 
-      // Also clean up from playlists
-      const updatedRangkaian = rangkaianList.map((r) => ({
-        ...r,
-        zikirIds: r.zikirIds.filter((zId) => zId !== id),
-      }));
+      // Clean up from playlists
+      const updatedRangkaian = rangkaianList.map((r) => {
+        const nextCfg = { ...(r.itemsConfig || {}) };
+        delete nextCfg[id];
+        return {
+          ...r,
+          zikirIds: r.zikirIds.filter((zId) => zId !== id),
+          itemsConfig: nextCfg,
+        };
+      });
       onUpdateRangkaianList(updatedRangkaian);
 
       if (sheetConfig.webAppUrl && sheetConfig.autoSync) {
@@ -209,17 +225,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       description: '',
       iconEmoji: '📿',
       zikirIds: [],
+      itemsConfig: {},
       order: rangkaianList.length + 1,
       colorTheme: 'emerald',
     };
     setEditingRangkaian(newRangkaian);
     setIsNewRangkaian(true);
+    setRangkaianModalSubTab('select');
     setIsRangkaianModalOpen(true);
   };
 
   const handleEditRangkaian = (rangkaian: RangkaianItem) => {
-    setEditingRangkaian({ ...rangkaian, zikirIds: [...rangkaian.zikirIds] });
+    setEditingRangkaian({
+      ...rangkaian,
+      zikirIds: [...rangkaian.zikirIds],
+      itemsConfig: rangkaian.itemsConfig ? { ...rangkaian.itemsConfig } : {},
+    });
     setIsNewRangkaian(false);
+    setRangkaianModalSubTab('select');
     setIsRangkaianModalOpen(true);
   };
 
@@ -274,16 +297,65 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     onUpdateRangkaianList(updated);
   };
 
+  // Toggle zikir into rangkaian
   const handleToggleZikirInRangkaian = (zikirId: string) => {
     if (!editingRangkaian) return;
     const exists = editingRangkaian.zikirIds.includes(zikirId);
     let updatedIds: string[];
+    const updatedConfig = { ...(editingRangkaian.itemsConfig || {}) };
+
     if (exists) {
       updatedIds = editingRangkaian.zikirIds.filter((id) => id !== zikirId);
+      delete updatedConfig[zikirId];
     } else {
       updatedIds = [...editingRangkaian.zikirIds, zikirId];
+      const matched = zikirItems.find((z) => z.id === zikirId);
+      updatedConfig[zikirId] = {
+        zikirId,
+        hasTargetCount: matched?.hasTargetCount !== undefined ? matched.hasTargetCount : (matched?.targetCount || 0) > 0,
+        customTargetCount: matched?.targetCount || 33,
+        hideHadits: matched?.hideHadits || false,
+        hideFadhilah: matched?.hideFadhilah || false,
+        customFadhilah: matched?.fadhilah || '',
+      };
     }
-    setEditingRangkaian({ ...editingRangkaian, zikirIds: updatedIds });
+
+    setEditingRangkaian({
+      ...editingRangkaian,
+      zikirIds: updatedIds,
+      itemsConfig: updatedConfig,
+    });
+  };
+
+  // Update specific zikir config inside rangkaian
+  const handleUpdateZikirConfigInRangkaian = (
+    zikirId: string,
+    updates: Partial<RangkaianZikirEntry>
+  ) => {
+    if (!editingRangkaian) return;
+    const current = editingRangkaian.itemsConfig?.[zikirId] || { zikirId };
+    setEditingRangkaian({
+      ...editingRangkaian,
+      itemsConfig: {
+        ...(editingRangkaian.itemsConfig || {}),
+        [zikirId]: { ...current, ...updates },
+      },
+    });
+  };
+
+  // Reorder zikir inside rangkaian
+  const handleMoveZikirInRangkaian = (index: number, direction: 'up' | 'down') => {
+    if (!editingRangkaian) return;
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= editingRangkaian.zikirIds.length) return;
+    const newIds = [...editingRangkaian.zikirIds];
+    const temp = newIds[index];
+    newIds[index] = newIds[targetIndex];
+    newIds[targetIndex] = temp;
+    setEditingRangkaian({
+      ...editingRangkaian,
+      zikirIds: newIds,
+    });
   };
 
   // --- RESET & BACKUP HANDLERS ---
@@ -438,7 +510,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleExportJson = () => {
     const backupData = {
-      version: '1.0',
+      version: '1.2',
       exportedAt: new Date().toISOString(),
       zikirItems,
       rangkaianList,
@@ -495,7 +567,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </span>
               </div>
               <p className="text-xs text-emerald-200/90 hidden sm:block">
-                Kustomisasi teks zikir, hitungan tasbih, rangkaian zikir, dan database Google Spreadsheet
+                Kustomisasi teks zikir, bilangan hitungan, hadits, fadhilah, dan rangkaian zikir
               </p>
             </div>
           </div>
@@ -641,11 +713,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           </span>
                           <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 font-semibold flex items-center gap-1">
                             <Hash className="w-3 h-3" />
-                            Target: {item.targetCount}x
+                            {item.hasTargetCount === false || item.targetCount <= 0
+                              ? 'Tanpa Jumlah Bilangan'
+                              : `Target: ${item.targetCount}x`}
                           </span>
-                          {item.repeatNote && (
-                            <span className="text-[11px] text-slate-500 italic">
-                              ({item.repeatNote})
+                          {item.hideHadits && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 border border-slate-200">
+                              Hadits Disembunyikan
+                            </span>
+                          )}
+                          {item.hideFadhilah && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 border border-slate-200">
+                              Fadhilah Disembunyikan
                             </span>
                           )}
                         </div>
@@ -655,21 +734,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           {item.title}
                         </h4>
 
-                        {/* Arabic Preview */}
                         <p className="font-arabic text-emerald-950 text-base leading-relaxed line-clamp-1 bg-emerald-50/50 p-2 rounded-lg border border-emerald-100/60" dir="rtl">
                           {item.arabic}
                         </p>
 
-                        {/* Latin & Translation snippet */}
                         <p className="text-xs text-slate-600 line-clamp-1 italic">
                           "{item.latin}"
                         </p>
                         <p className="text-xs text-slate-500 line-clamp-1">
                           Arti: {item.translation}
                         </p>
-                        <p className="text-[11px] text-amber-700/80 font-medium line-clamp-1">
-                          📖 {item.dalil}
-                        </p>
+                        {!item.hideHadits && item.dalil && (
+                          <p className="text-[11px] text-amber-700/80 font-medium line-clamp-1">
+                            📖 Hadits: {item.dalil}
+                          </p>
+                        )}
+                        {!item.hideFadhilah && item.fadhilah && (
+                          <p className="text-[11px] text-emerald-700/80 font-medium line-clamp-1">
+                            ✨ Fadhilah: {item.fadhilah}
+                          </p>
+                        )}
                       </div>
 
                       {/* Right: Actions */}
@@ -726,7 +810,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     Manajemen Rangkaian Zikir (Playlists)
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Admin dapat membuat, mengubah nama, ikon, serta memilih zikir apa saja yang ada dalam setiap rangkaian.
+                    Kustomisasi rangkaian doa: tentukan zikir, hilangkan bilangan, sembunyikan hadits, dan edit fadhilah khusus per zikir.
                   </p>
                 </div>
                 <button
@@ -741,7 +825,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {/* Rangkaian List Cards */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {sortedRangkaianList.map((r, index) => {
-                  const zikirsInR = zikirItems.filter((z) => r.zikirIds.includes(z.id));
                   return (
                     <div
                       key={r.id}
@@ -761,7 +844,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             </div>
                           </div>
 
-                          {/* Reorder buttons */}
                           <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200">
                             <button
                               onClick={() => handleMoveRangkaianOrder(index, 'up')}
@@ -789,9 +871,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         {/* List preview of zikirs in this playlist */}
                         <div className="pt-2 border-t border-slate-100">
                           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                            Urutan Bacaan:
+                            Urutan Bacaan & Pengaturan:
                           </span>
-                          {zikirsInR.length === 0 ? (
+                          {r.zikirIds.length === 0 ? (
                             <p className="text-xs text-amber-700 italic">
                               (Belum ada zikir yang dipilih untuk rangkaian ini)
                             </p>
@@ -800,14 +882,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               {r.zikirIds.map((zId, i) => {
                                 const matchedZ = zikirItems.find((z) => z.id === zId);
                                 if (!matchedZ) return null;
+                                const cfg = r.itemsConfig?.[zId];
+                                const hasTarget = cfg?.hasTargetCount !== undefined ? cfg.hasTargetCount : (matchedZ.targetCount > 0);
+                                const targetCount = hasTarget ? (cfg?.customTargetCount || matchedZ.targetCount) : 0;
+                                const hasCustomFadhilah = cfg?.customFadhilah && cfg.customFadhilah.trim() !== '';
+
                                 return (
                                   <span
                                     key={zId}
                                     className="text-[11px] px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200 flex items-center gap-1"
                                   >
                                     <span className="font-mono text-emerald-700 font-bold">{i + 1}.</span>
-                                    <span className="truncate max-w-[130px]">{matchedZ.title}</span>
-                                    <span className="text-slate-400">({matchedZ.targetCount}x)</span>
+                                    <span className="truncate max-w-[120px]">{matchedZ.title}</span>
+                                    <span className="text-emerald-800 font-mono font-medium">
+                                      ({hasTarget ? `${targetCount}x` : 'Tanpa Bilangan'})
+                                    </span>
+                                    {hasCustomFadhilah && (
+                                      <span className="text-[10px] text-amber-600 font-bold" title="Fadhilah Dikustom">
+                                        ✨
+                                      </span>
+                                    )}
                                   </span>
                                 );
                               })}
@@ -820,10 +914,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
                         <button
                           onClick={() => handleEditRangkaian(r)}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-semibold transition-colors"
+                          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-semibold transition-colors"
                         >
-                          <Edit2 className="w-3.5 h-3.5" />
-                          <span>Kustomisasi Rangkaian</span>
+                          <Sliders className="w-3.5 h-3.5" />
+                          <span>Kustomisasi Rangkaian & Fadhilah</span>
                         </button>
                         <button
                           onClick={() => handleDeleteRangkaian(r.id, r.title)}
@@ -907,9 +1001,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       placeholder="https://script.google.com/macros/s/.../exec"
                       className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono text-slate-800"
                     />
-                    <p className="text-[11px] text-slate-500 mt-1">
-                      Tempelkan URL Web App yang Anda dapatkan setelah menerapkan Apps Script di Google Spreadsheet.
-                    </p>
                   </div>
 
                   <label className="flex items-center space-x-2.5 cursor-pointer pt-1">
@@ -971,41 +1062,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <span className="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs flex items-center justify-center font-bold">
                       ?
                     </span>
-                    Panduan 3 Menit Menghubungkan Google Spreadsheet
+                    Panduan Menghubungkan Google Spreadsheet
                   </h3>
                   <button
                     onClick={handleCopyCode}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-semibold transition-all"
                   >
                     {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedCode ? 'Tersalin ke Clipboard!' : 'Salin Kode Apps Script'}</span>
+                    <span>{copiedCode ? 'Tersalin!' : 'Salin Kode Apps Script'}</span>
                   </button>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-slate-600">
-                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
-                    <div className="font-bold text-slate-800 flex items-center gap-1.5">
-                      <span className="w-5 h-5 rounded-full bg-emerald-700 text-white text-[11px] flex items-center justify-center font-bold">1</span>
-                      Buat Spreadsheet
-                    </div>
-                    <p>Buka <a href="https://sheets.new" target="_blank" rel="noreferrer" className="text-emerald-700 underline font-semibold">sheets.new</a>, beri nama file <em>"Database Ayo Zikir"</em>.</p>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
-                    <div className="font-bold text-slate-800 flex items-center gap-1.5">
-                      <span className="w-5 h-5 rounded-full bg-emerald-700 text-white text-[11px] flex items-center justify-center font-bold">2</span>
-                      Tempel Script
-                    </div>
-                    <p>Klik menu <strong>Ekstensi &gt; Apps Script</strong>. Hapus isinya, salin kode di bawah, dan simpan (Ctrl+S).</p>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
-                    <div className="font-bold text-slate-800 flex items-center gap-1.5">
-                      <span className="w-5 h-5 rounded-full bg-emerald-700 text-white text-[11px] flex items-center justify-center font-bold">3</span>
-                      Terapkan (Deploy)
-                    </div>
-                    <p>Klik <strong>Terapkan &gt; Penerapan Baru</strong>. Pilih jenis <strong>Aplikasi Web</strong>, akses: <strong>"Siapa saja" (Anyone)</strong>. Salin URL dan tempel ke kolom di atas.</p>
-                  </div>
                 </div>
 
                 <div className="space-y-1.5">
@@ -1073,14 +1138,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       </div>
 
-      {/* MODAL 1: ADD / EDIT ZIKIR */}
+      {/* MODAL 1: ADD / EDIT ZIKIR MASTER */}
       {isEditingModalOpen && editingItem && (
         <div className="fixed inset-0 z-60 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-fade-in overflow-hidden">
-          <div className="bg-white w-full max-w-2xl max-h-[90vh] rounded-2xl shadow-2xl border border-emerald-100 flex flex-col overflow-hidden">
+          <div className="bg-white w-full max-w-2xl max-h-[92vh] rounded-2xl shadow-2xl border border-emerald-100 flex flex-col overflow-hidden">
             <div className="bg-gradient-to-r from-emerald-800 to-teal-800 p-4 text-white flex items-center justify-between shrink-0">
               <h3 className="font-bold text-base sm:text-lg flex items-center gap-2">
                 <Edit2 className="w-4 h-4 text-amber-300" />
-                {isNewItem ? 'Tambah Zikir & Doa Baru' : 'Edit Detail & Bilangan Zikir'}
+                {isNewItem ? 'Tambah Zikir & Doa Baru' : 'Edit Detail Zikir Master'}
               </h3>
               <button onClick={() => setIsEditingModalOpen(false)} className="text-emerald-200 hover:text-white p-1 rounded-lg">
                 <X className="w-5 h-5" />
@@ -1103,7 +1168,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   />
                 </div>
 
-                {/* Kategori Zikir - DIKETIK LANGSUNG OLEH ADMIN SESUAI PERMINTAAN PENGGUNA */}
                 <div className="space-y-1">
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
                     Kategori Zikir *
@@ -1116,41 +1180,66 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     placeholder="Ketik kategori bebas..."
                     className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-emerald-900"
                   />
-                  <p className="text-[10px] text-slate-400">Bebas diketik oleh admin</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Target Bilangan Hitungan (Zikir Count) *
+              {/* PENGATURAN TARGET BILANGAN */}
+              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editingItem.hasTargetCount !== false}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setEditingItem({
+                          ...editingItem,
+                          hasTargetCount: checked,
+                          targetCount: checked ? (editingItem.targetCount || 33) : 0,
+                        });
+                      }}
+                      className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300"
+                    />
+                    <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                      Tetapkan Target Bilangan Hitungan (Zikir Count)
+                    </span>
                   </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="10000"
-                    required
-                    value={editingItem.targetCount}
-                    onChange={(e) => setEditingItem({ ...editingItem, targetCount: Number(e.target.value) || 1 })}
-                    className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-emerald-800"
-                  />
-                  <p className="text-[11px] text-slate-400">
-                    Contoh: 33 kali, 100 kali, 3 kali, atau 1 kali.
-                  </p>
+                  {editingItem.hasTargetCount === false && (
+                    <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                      Tanpa Jumlah Bilangan
+                    </span>
+                  )}
                 </div>
 
-                <div className="space-y-1">
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Catatan Pengulangan
-                  </label>
-                  <input
-                    type="text"
-                    value={editingItem.repeatNote || ''}
-                    onChange={(e) => setEditingItem({ ...editingItem, repeatNote: e.target.value })}
-                    placeholder="Contoh: Dibaca 33x setelah shalat"
-                    className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
+                {editingItem.hasTargetCount !== false ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <input
+                        type="number"
+                        min="1"
+                        max="10000"
+                        required
+                        value={editingItem.targetCount || 1}
+                        onChange={(e) => setEditingItem({ ...editingItem, targetCount: Number(e.target.value) || 1 })}
+                        className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-emerald-800"
+                      />
+                      <p className="text-[11px] text-slate-400 mt-1">Misalnya: 33 kali, 100 kali, 3 kali, atau 1 kali.</p>
+                    </div>
+                    <div>
+                      <input
+                        type="text"
+                        value={editingItem.repeatNote || ''}
+                        onChange={(e) => setEditingItem({ ...editingItem, repeatNote: e.target.value })}
+                        placeholder="Catatan pengulangan (misal: Dibaca 33x)"
+                        className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 italic">
+                    Zikir ini disetting tidak ada jumlah bilangannya. Pengguna dapat membaca dan menghayati secara bebas tanpa batasan target hitungan.
+                  </p>
+                )}
               </div>
 
               {/* Kalimat Arab */}
@@ -1202,18 +1291,70 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 />
               </div>
 
-              {/* Dalil / Hadits */}
-              <div className="space-y-1">
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                  Hadits / Dalil & Keutamaan
-                </label>
-                <textarea
-                  rows={2}
-                  value={editingItem.dalil}
-                  onChange={(e) => setEditingItem({ ...editingItem, dalil: e.target.value })}
-                  placeholder="Contoh: HR. Bukhari no. 6306..."
-                  className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
+              {/* KOLOM TERPISAH 1: HADITS & DALIL RIWAYAT */}
+              <div className="p-3.5 bg-amber-50/50 rounded-2xl border border-amber-200/80 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!editingItem.hideHadits}
+                      onChange={(e) => setEditingItem({ ...editingItem, hideHadits: !e.target.checked })}
+                      className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-slate-300"
+                    />
+                    <span className="text-xs font-bold text-amber-950 uppercase tracking-wider flex items-center gap-1.5">
+                      <BookOpen className="w-3.5 h-3.5 text-amber-600" />
+                      Tampilkan Hadits Riwayat & Dalil
+                    </span>
+                  </label>
+                  {editingItem.hideHadits && (
+                    <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                      Tidak Ada Hadits
+                    </span>
+                  )}
+                </div>
+
+                {!editingItem.hideHadits && (
+                  <textarea
+                    rows={2}
+                    value={editingItem.dalil || ''}
+                    onChange={(e) => setEditingItem({ ...editingItem, dalil: e.target.value })}
+                    placeholder="Contoh: HR. Bukhari no. 6306. Siapa yang membacanya..."
+                    className="w-full px-3 py-2 text-sm bg-white border border-amber-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 text-amber-950"
+                  />
+                )}
+              </div>
+
+              {/* KOLOM TERPISAH 2: FADHILAH & KEUTAMAAN KHUSUS */}
+              <div className="p-3.5 bg-emerald-50/50 rounded-2xl border border-emerald-200/80 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!editingItem.hideFadhilah}
+                      onChange={(e) => setEditingItem({ ...editingItem, hideFadhilah: !e.target.checked })}
+                      className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300"
+                    />
+                    <span className="text-xs font-bold text-emerald-950 uppercase tracking-wider flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                      Tampilkan Fadhilah & Keutamaan Khusus (Kolom Terpisah)
+                    </span>
+                  </label>
+                  {editingItem.hideFadhilah && (
+                    <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                      Tidak Ada Fadhilah
+                    </span>
+                  )}
+                </div>
+
+                {!editingItem.hideFadhilah && (
+                  <textarea
+                    rows={2}
+                    value={editingItem.fadhilah || ''}
+                    onChange={(e) => setEditingItem({ ...editingItem, fadhilah: e.target.value })}
+                    placeholder="Contoh: Menghapuskan dosa walau sebanyak buih di lautan..."
+                    className="w-full px-3 py-2 text-sm bg-white border border-emerald-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-emerald-950 font-medium"
+                  />
+                )}
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
@@ -1236,132 +1377,434 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* MODAL 2: ADD / EDIT RANGKAIAN ZIKIR (PLAYLISTS) */}
+      {/* MODAL 2: ADD / EDIT RANGKAIAN ZIKIR (DENGAN KUSTOMISASI BILANGAN, HADITS, & EDIT FADHILAH PER ZIKIR) */}
       {isRangkaianModalOpen && editingRangkaian && (
         <div className="fixed inset-0 z-60 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-fade-in overflow-hidden">
-          <div className="bg-white w-full max-w-2xl max-h-[92vh] rounded-2xl shadow-2xl border border-emerald-100 flex flex-col overflow-hidden">
+          <div className="bg-white w-full max-w-3xl max-h-[92vh] rounded-2xl shadow-2xl border border-emerald-100 flex flex-col overflow-hidden">
             <div className="bg-gradient-to-r from-emerald-800 to-teal-800 p-4 text-white flex items-center justify-between shrink-0">
               <h3 className="font-bold text-base sm:text-lg flex items-center gap-2">
                 <ListPlus className="w-5 h-5 text-amber-300" />
-                {isNewRangkaian ? 'Tambah Rangkaian Zikir Baru' : 'Kustomisasi Rangkaian Zikir'}
+                {isNewRangkaian ? 'Tambah Rangkaian Zikir Baru' : 'Kustomisasi Rangkaian Doa & Zikir'}
               </h3>
               <button onClick={() => setIsRangkaianModalOpen(false)} className="text-emerald-200 hover:text-white p-1 rounded-lg">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
+            {/* Sub-Tabs in Rangkaian Modal */}
+            <div className="bg-slate-100 border-b border-slate-200 px-4 py-2 flex items-center gap-2 shrink-0 overflow-x-auto text-xs">
+              <button
+                type="button"
+                onClick={() => setRangkaianModalSubTab('info')}
+                className={`px-3 py-1.5 rounded-xl font-bold transition-all ${
+                  rangkaianModalSubTab === 'info'
+                    ? 'bg-emerald-700 text-white shadow-xs'
+                    : 'bg-white text-slate-600 hover:bg-slate-200/60'
+                }`}
+              >
+                1. Info Rangkaian
+              </button>
+              <button
+                type="button"
+                onClick={() => setRangkaianModalSubTab('select')}
+                className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 ${
+                  rangkaianModalSubTab === 'select'
+                    ? 'bg-emerald-700 text-white shadow-xs'
+                    : 'bg-white text-slate-600 hover:bg-slate-200/60'
+                }`}
+              >
+                <span>2. Pilih Zikir</span>
+                <span className="px-1.5 py-0.2 rounded-full bg-amber-400 text-emerald-950 text-[10px] font-extrabold">
+                  {editingRangkaian.zikirIds.length}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRangkaianModalSubTab('customize')}
+                className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 ${
+                  rangkaianModalSubTab === 'customize'
+                    ? 'bg-emerald-700 text-white shadow-xs'
+                    : 'bg-white text-slate-600 hover:bg-slate-200/60'
+                }`}
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span>3. Kustomisasi Bilangan, Hadits & Fadhilah ({editingRangkaian.zikirIds.length})</span>
+              </button>
+            </div>
+
             <form onSubmit={handleSaveRangkaian} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <div className="sm:col-span-3 space-y-1">
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Nama Rangkaian Zikir *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={editingRangkaian.title}
-                    onChange={(e) => setEditingRangkaian({ ...editingRangkaian, title: e.target.value })}
-                    placeholder="Contoh: Zikir Pagi / Zikir Rezeki / Setelah Shalat"
-                    className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-semibold"
-                  />
-                </div>
+              {/* SUBTAB 1: INFO RANGKAIAN */}
+              {rangkaianModalSubTab === 'info' && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div className="sm:col-span-3 space-y-1">
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        Nama Rangkaian Zikir *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={editingRangkaian.title}
+                        onChange={(e) => setEditingRangkaian({ ...editingRangkaian, title: e.target.value })}
+                        placeholder="Contoh: Zikir Pagi / Rangkaian Doa Pembuka Rezeki"
+                        className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-semibold"
+                      />
+                    </div>
 
-                <div className="space-y-1">
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Ikon Emoji
-                  </label>
-                  <input
-                    type="text"
-                    value={editingRangkaian.iconEmoji}
-                    onChange={(e) => setEditingRangkaian({ ...editingRangkaian, iconEmoji: e.target.value })}
-                    placeholder="🌅"
-                    className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-center text-lg"
-                  />
-                </div>
-              </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        Ikon Emoji
+                      </label>
+                      <input
+                        type="text"
+                        value={editingRangkaian.iconEmoji}
+                        onChange={(e) => setEditingRangkaian({ ...editingRangkaian, iconEmoji: e.target.value })}
+                        placeholder="🌅"
+                        className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-center text-lg"
+                      />
+                    </div>
+                  </div>
 
-              <div className="space-y-1">
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                  Deskripsi Rangkaian
-                </label>
-                <textarea
-                  rows={2}
-                  value={editingRangkaian.description}
-                  onChange={(e) => setEditingRangkaian({ ...editingRangkaian, description: e.target.value })}
-                  placeholder="Kompilasi zikir perlindungan pagi hari..."
-                  className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      Deskripsi Rangkaian
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={editingRangkaian.description}
+                      onChange={(e) => setEditingRangkaian({ ...editingRangkaian, description: e.target.value })}
+                      placeholder="Penjelasan singkat mengenai keutamaan waktu atau tujuan membaca rangkaian ini..."
+                      className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
 
-              {/* Pilih Zikir yang Masuk dalam Rangkaian */}
-              <div className="space-y-2 pt-1">
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Pilih Zikir yang Masuk Rangkaian ({editingRangkaian.zikirIds.length} dipilih) *
-                  </label>
-                  <div className="flex items-center gap-2 text-xs">
+                  <div className="pt-2">
                     <button
                       type="button"
-                      onClick={() =>
-                        setEditingRangkaian({
-                          ...editingRangkaian,
-                          zikirIds: zikirItems.map((z) => z.id),
-                        })
-                      }
-                      className="text-emerald-700 hover:underline font-semibold"
+                      onClick={() => setRangkaianModalSubTab('select')}
+                      className="px-4 py-2 rounded-xl bg-emerald-700 text-white text-xs font-bold shadow-xs hover:bg-emerald-600 transition-colors"
                     >
-                      Pilih Semua
-                    </button>
-                    <span className="text-slate-300">|</span>
-                    <button
-                      type="button"
-                      onClick={() => setEditingRangkaian({ ...editingRangkaian, zikirIds: [] })}
-                      className="text-slate-500 hover:underline"
-                    >
-                      Hapus Pilihan
+                      Lanjut ke Pilih Zikir →
                     </button>
                   </div>
                 </div>
+              )}
 
-                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 max-h-60 overflow-y-auto space-y-1.5">
-                  {zikirItems.map((item) => {
-                    const isChecked = editingRangkaian.zikirIds.includes(item.id);
-                    const selectedIndex = editingRangkaian.zikirIds.indexOf(item.id);
-                    return (
-                      <div
-                        key={item.id}
-                        onClick={() => handleToggleZikirInRangkaian(item.id)}
-                        className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer transition-all ${
-                          isChecked
-                            ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950 font-medium'
-                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
-                        }`}
+              {/* SUBTAB 2: PILIH ZIKIR */}
+              {rangkaianModalSubTab === 'select' && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-bold text-slate-800 text-sm">Pilih Zikir yang Masuk ke Rangkaian</h4>
+                      <p className="text-xs text-slate-500">Centang zikir yang ingin dimasukkan. ({editingRangkaian.zikirIds.length} dipilih)</p>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const allIds = zikirItems.map((z) => z.id);
+                          const nextConfig: Record<string, RangkaianZikirEntry> = {};
+                          zikirItems.forEach((z) => {
+                            nextConfig[z.id] = editingRangkaian.itemsConfig?.[z.id] || {
+                              zikirId: z.id,
+                              hasTargetCount: z.targetCount > 0,
+                              customTargetCount: z.targetCount || 33,
+                              hideHadits: z.hideHadits || false,
+                              hideFadhilah: z.hideFadhilah || false,
+                              customFadhilah: z.fadhilah || '',
+                            };
+                          });
+                          setEditingRangkaian({
+                            ...editingRangkaian,
+                            zikirIds: allIds,
+                            itemsConfig: nextConfig,
+                          });
+                        }}
+                        className="text-emerald-700 hover:underline font-semibold"
                       >
-                        <div className="flex items-center space-x-2.5 min-w-0">
-                          {isChecked ? (
-                            <CheckSquare className="w-4 h-4 text-emerald-700 shrink-0" />
-                          ) : (
-                            <Square className="w-4 h-4 text-slate-300 shrink-0" />
-                          )}
-                          <div className="truncate">
-                            <span className="text-xs font-bold">{item.title}</span>
-                            <span className="text-[11px] text-slate-400 ml-2">({item.category} • {item.targetCount}x)</span>
-                          </div>
-                        </div>
+                        Pilih Semua
+                      </button>
+                      <span className="text-slate-300">|</span>
+                      <button
+                        type="button"
+                        onClick={() => setEditingRangkaian({ ...editingRangkaian, zikirIds: [], itemsConfig: {} })}
+                        className="text-slate-500 hover:underline"
+                      >
+                        Hapus Semua
+                      </button>
+                    </div>
+                  </div>
 
-                        {isChecked && (
-                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-700 text-white font-bold shrink-0">
-                            Urutan #{selectedIndex + 1}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
+                  <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 max-h-72 overflow-y-auto space-y-1.5">
+                    {zikirItems.map((item) => {
+                      const isChecked = editingRangkaian.zikirIds.includes(item.id);
+                      const selectedIndex = editingRangkaian.zikirIds.indexOf(item.id);
+                      return (
+                        <div
+                          key={item.id}
+                          onClick={() => handleToggleZikirInRangkaian(item.id)}
+                          className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer transition-all ${
+                            isChecked
+                              ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950 font-medium'
+                              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          <div className="flex items-center space-x-2.5 min-w-0">
+                            {isChecked ? (
+                              <CheckSquare className="w-4 h-4 text-emerald-700 shrink-0" />
+                            ) : (
+                              <Square className="w-4 h-4 text-slate-300 shrink-0" />
+                            )}
+                            <div className="truncate">
+                              <span className="text-xs font-bold">{item.title}</span>
+                              <span className="text-[11px] text-slate-400 ml-2">({item.category})</span>
+                            </div>
+                          </div>
+
+                          {isChecked && (
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-700 text-white font-bold shrink-0">
+                              Urutan #{selectedIndex + 1}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="pt-2 flex items-center justify-between">
+                    <span className="text-xs text-slate-500">
+                      Setelah mencentang, buka tab berikutnya untuk mengatur bilangan, hadits, dan fadhilah.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setRangkaianModalSubTab('customize')}
+                      className="px-4 py-2 rounded-xl bg-emerald-700 text-white text-xs font-bold shadow-xs hover:bg-emerald-600 transition-colors"
+                    >
+                      Kustomisasi Zikir ({editingRangkaian.zikirIds.length}) →
+                    </button>
+                  </div>
                 </div>
-                <p className="text-[11px] text-slate-400">
-                  Zikir akan dibaca berurutan sesuai urutan centang yang Anda pilih.
-                </p>
-              </div>
+              )}
+
+              {/* SUBTAB 3: KUSTOMISASI BILANGAN, HADITS & EDIT FADHILAH PER ZIKIR DALAM RANGKAIAN */}
+              {rangkaianModalSubTab === 'customize' && (
+                <div className="space-y-4">
+                  <div className="bg-emerald-50/80 p-3 rounded-xl border border-emerald-200 text-xs text-emerald-900 leading-relaxed">
+                    <p className="font-bold flex items-center gap-1.5 text-emerald-950">
+                      <SlidersHorizontal className="w-4 h-4 text-emerald-700" />
+                      Pengaturan Khusus Setiap Zikir dalam Rangkaian Ini:
+                    </p>
+                    <p className="mt-0.5 text-emerald-800">
+                      Admin dapat mengatur apakah zikir memiliki target bilangan atau <strong>tidak ada jumlah bilangannya</strong>, apakah <strong>tidak ada hadits/fadhilah</strong>, serta <strong>mengedit kolom fadhilah khusus</strong> untuk rangkaian doa ini.
+                    </p>
+                  </div>
+
+                  {editingRangkaian.zikirIds.length === 0 ? (
+                    <div className="p-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-300 text-slate-500 space-y-2">
+                      <p className="font-bold text-sm text-slate-700">Belum ada zikir yang dipilih</p>
+                      <p className="text-xs">Silakan buka tab "2. Pilih Zikir" terlebih dahulu untuk memilih zikir.</p>
+                      <button
+                        type="button"
+                        onClick={() => setRangkaianModalSubTab('select')}
+                        className="px-3.5 py-1.5 rounded-xl bg-emerald-700 text-white text-xs font-semibold"
+                      >
+                        Buka Pilihan Zikir
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {editingRangkaian.zikirIds.map((zId, idx) => {
+                        const matchedZ = zikirItems.find((z) => z.id === zId);
+                        if (!matchedZ) return null;
+
+                        const cfg = editingRangkaian.itemsConfig?.[zId] || {
+                          zikirId: zId,
+                          hasTargetCount: matchedZ.hasTargetCount !== undefined ? matchedZ.hasTargetCount : matchedZ.targetCount > 0,
+                          customTargetCount: matchedZ.targetCount || 33,
+                          hideHadits: matchedZ.hideHadits || false,
+                          hideFadhilah: matchedZ.hideFadhilah || false,
+                          customFadhilah: matchedZ.fadhilah || '',
+                        };
+
+                        const hasTarget = cfg.hasTargetCount !== false;
+                        const hideHadits = cfg.hideHadits === true;
+                        const hideFadhilah = cfg.hideFadhilah === true;
+                        const fadhilahValue = cfg.customFadhilah !== undefined ? cfg.customFadhilah : (matchedZ.fadhilah || '');
+
+                        return (
+                          <div
+                            key={zId}
+                            className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3 hover:border-emerald-300 transition-all"
+                          >
+                            {/* Card Top: Order, Title, & Up/Down Actions */}
+                            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                              <div className="flex items-center space-x-2">
+                                <span className="w-6 h-6 rounded-full bg-emerald-700 text-white font-mono text-xs flex items-center justify-center font-bold">
+                                  {idx + 1}
+                                </span>
+                                <div>
+                                  <h5 className="font-bold text-slate-900 text-sm">{matchedZ.title}</h5>
+                                  <span className="text-[10px] text-slate-400">Kategori asal: {matchedZ.category}</span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleMoveZikirInRangkaian(idx, 'up')}
+                                  disabled={idx === 0}
+                                  title="Pindah ke Atas"
+                                  className="p-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 disabled:opacity-30"
+                                >
+                                  <ArrowUp className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleMoveZikirInRangkaian(idx, 'down')}
+                                  disabled={idx === editingRangkaian.zikirIds.length - 1}
+                                  title="Pindah ke Bawah"
+                                  className="p-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 disabled:opacity-30"
+                                >
+                                  <ArrowDown className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleZikirInRangkaian(zId)}
+                                  title="Hapus dari rangkaian"
+                                  className="p-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 ml-1"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* PENGATURAN 1: BILANGAN HITUNGAN DALAM RANGKAIAN */}
+                            <div className="p-3 bg-slate-50 rounded-xl space-y-1.5">
+                              <label className="flex items-center space-x-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={hasTarget}
+                                  onChange={(e) =>
+                                    handleUpdateZikirConfigInRangkaian(zId, {
+                                      hasTargetCount: e.target.checked,
+                                    })
+                                  }
+                                  className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300"
+                                />
+                                <span className="text-xs font-bold text-slate-800">
+                                  Tetapkan Target Bilangan Hitungan
+                                </span>
+                              </label>
+
+                              {hasTarget ? (
+                                <div className="flex items-center gap-2 pt-1 pl-6">
+                                  <span className="text-xs text-slate-600">Jumlah target:</span>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    max="10000"
+                                    value={cfg.customTargetCount || matchedZ.targetCount || 1}
+                                    onChange={(e) =>
+                                      handleUpdateZikirConfigInRangkaian(zId, {
+                                        customTargetCount: Number(e.target.value) || 1,
+                                      })
+                                    }
+                                    className="w-24 px-2 py-1 text-xs font-bold bg-white border border-slate-300 rounded-lg text-emerald-800 focus:ring-1 focus:ring-emerald-500"
+                                  />
+                                  <span className="text-xs text-slate-500 font-medium">kali hitungan</span>
+                                </div>
+                              ) : (
+                                <p className="text-[11px] text-amber-700 font-medium pl-6">
+                                  ✨ Disetting <strong>tidak ada jumlah bilangannya</strong> (bacaan bebas, tombol selesai/lanjut langsung aktif).
+                                </p>
+                              )}
+                            </div>
+
+                            {/* PENGATURAN 2: HADITS RIWAYAT DALAM RANGKAIAN */}
+                            <div className="p-3 bg-amber-50/50 rounded-xl border border-amber-200/60 space-y-1">
+                              <label className="flex items-center space-x-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={!hideHadits}
+                                  onChange={(e) =>
+                                    handleUpdateZikirConfigInRangkaian(zId, {
+                                      hideHadits: !e.target.checked,
+                                    })
+                                  }
+                                  className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-slate-300"
+                                />
+                                <span className="text-xs font-bold text-amber-950 flex items-center gap-1">
+                                  <BookOpen className="w-3.5 h-3.5 text-amber-600" />
+                                  Tampilkan Hadits Riwayat
+                                </span>
+                              </label>
+
+                              {hideHadits ? (
+                                <p className="text-[11px] text-slate-500 italic pl-6">
+                                  Hadits disetting tidak ditampilkan pada rangkaian ini.
+                                </p>
+                              ) : (
+                                <p className="text-[11px] text-amber-900/80 line-clamp-1 italic pl-6">
+                                  "{matchedZ.dalil || 'Tidak ada riwayat hadits.'}"
+                                </p>
+                              )}
+                            </div>
+
+                            {/* PENGATURAN 3: EDIT FADHILAH KHUSUS RANGKAIAN (KOLOM BERBEDA DENGAN HADITS) */}
+                            <div className="p-3 bg-emerald-50/50 rounded-xl border border-emerald-200/60 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <label className="flex items-center space-x-2 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={!hideFadhilah}
+                                    onChange={(e) =>
+                                      handleUpdateZikirConfigInRangkaian(zId, {
+                                        hideFadhilah: !e.target.checked,
+                                      })
+                                    }
+                                    className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300"
+                                  />
+                                  <span className="text-xs font-bold text-emerald-950 flex items-center gap-1">
+                                    <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                                    Tampilkan Fadhilah Keutamaan
+                                  </span>
+                                </label>
+                                {hideFadhilah && (
+                                  <span className="text-[10px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                                    Fadhilah Disembunyikan
+                                  </span>
+                                )}
+                              </div>
+
+                              {!hideFadhilah && (
+                                <div className="space-y-1 pl-6">
+                                  <label className="block text-[11px] font-bold text-emerald-900">
+                                    Kolom Edit Fadhilah untuk Rangkaian Ini (Berbeda dengan Hadits):
+                                  </label>
+                                  <textarea
+                                    rows={2}
+                                    value={fadhilahValue}
+                                    onChange={(e) =>
+                                      handleUpdateZikirConfigInRangkaian(zId, {
+                                        customFadhilah: e.target.value,
+                                      })
+                                    }
+                                    placeholder="Tuliskan fadhilah atau keutamaan khusus saat zikir ini dibaca dalam rangkaian doa ini..."
+                                    className="w-full px-3 py-1.5 text-xs bg-white border border-emerald-300 rounded-lg text-emerald-950 focus:ring-1 focus:ring-emerald-500"
+                                  />
+                                  <p className="text-[10px] text-emerald-700/80">
+                                    Fadhilah ini khusus ditampilkan saat zikir dibaca dalam rangkaian "{editingRangkaian.title}".
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
                 <button

@@ -64,6 +64,10 @@ function doGet(e) {
       for (var k = 1; k < rowsR.length; k++) {
         var rRow = rowsR[k];
         if (!rRow[0]) continue;
+        var cfg = {};
+        if (rRow[7]) {
+          try { cfg = JSON.parse(rRow[7]); } catch(e) {}
+        }
         dataRangkaian.push({
           id: String(rRow[0]),
           title: String(rRow[1] || ''),
@@ -71,7 +75,8 @@ function doGet(e) {
           iconEmoji: String(rRow[3] || '📿'),
           order: Number(rRow[4]) || k,
           colorTheme: String(rRow[5] || 'emerald'),
-          zikirIds: rRow[6] ? String(rRow[6]).split(',').map(function(s){ return s.trim(); }).filter(Boolean) : []
+          zikirIds: rRow[6] ? String(rRow[6]).split(',').map(function(s){ return s.trim(); }).filter(Boolean) : [],
+          itemsConfig: cfg
         });
       }
     }
@@ -124,7 +129,7 @@ function doPost(e) {
     // Simpan Sheet Rangkaian
     if (rangkaian && rangkaian.length > 0) {
       var sheetR = getOrCreateSheet(ss, 'AyoZikirRangkaian');
-      var headersR = ['id', 'title', 'description', 'iconEmoji', 'order', 'colorTheme', 'zikirIds'];
+      var headersR = ['id', 'title', 'description', 'iconEmoji', 'order', 'colorTheme', 'zikirIds', 'itemsConfigJson'];
       sheetR.clearContents();
       sheetR.appendRow(headersR);
       sheetR.getRange(1, 1, 1, headersR.length).setFontWeight("bold").setBackground("#047857").setFontColor("#ffffff");
@@ -139,7 +144,8 @@ function doPost(e) {
           itemR.iconEmoji || '📿',
           Number(itemR.order) || (r+1),
           itemR.colorTheme || 'emerald',
-          Array.isArray(itemR.zikirIds) ? itemR.zikirIds.join(',') : ''
+          Array.isArray(itemR.zikirIds) ? itemR.zikirIds.join(',') : '',
+          itemR.itemsConfig ? JSON.stringify(itemR.itemsConfig) : ''
         ]);
       }
       sheetR.getRange(2, 1, rowsR.length, headersR.length).setValues(rowsR);
@@ -290,21 +296,38 @@ export async function fetchFromGoogleSheet(url: string): Promise<FetchResult> {
       translation: String(item.translation || ''),
       dalil: String(item.dalil || ''),
       fadhilah: item.fadhilah ? String(item.fadhilah) : '',
-      targetCount: Number(item.targetCount) || 1,
+      targetCount: Number(item.targetCount) || 0,
+      hasTargetCount:
+        item.hasTargetCount !== undefined
+          ? item.hasTargetCount === true || item.hasTargetCount === 'true'
+          : Number(item.targetCount) > 0,
+      hideHadits: item.hideHadits === true || item.hideHadits === 'true',
+      hideFadhilah: item.hideFadhilah === true || item.hideFadhilah === 'true',
       repeatNote: item.repeatNote ? String(item.repeatNote) : undefined,
     }));
 
     let rangkaian: RangkaianItem[] | undefined;
     if (Array.isArray(json.rangkaian) && json.rangkaian.length > 0) {
-      rangkaian = json.rangkaian.map((r: any, rIdx: number) => ({
-        id: String(r.id || `rangkaian-${rIdx + 1}`),
-        title: String(r.title || 'Rangkaian Zikir'),
-        description: String(r.description || ''),
-        iconEmoji: String(r.iconEmoji || '📿'),
-        order: Number(r.order) || rIdx + 1,
-        colorTheme: String(r.colorTheme || 'emerald'),
-        zikirIds: Array.isArray(r.zikirIds) ? r.zikirIds : [],
-      }));
+      rangkaian = json.rangkaian.map((r: any, rIdx: number) => {
+        let parsedConfig: Record<string, any> = {};
+        if (r.itemsConfig && typeof r.itemsConfig === 'object') {
+          parsedConfig = r.itemsConfig;
+        } else if (r.itemsConfigJson) {
+          try {
+            parsedConfig = typeof r.itemsConfigJson === 'string' ? JSON.parse(r.itemsConfigJson) : r.itemsConfigJson;
+          } catch (e) {}
+        }
+        return {
+          id: String(r.id || `rangkaian-${rIdx + 1}`),
+          title: String(r.title || 'Rangkaian Zikir'),
+          description: String(r.description || ''),
+          iconEmoji: String(r.iconEmoji || '📿'),
+          order: Number(r.order) || rIdx + 1,
+          colorTheme: String(r.colorTheme || 'emerald'),
+          zikirIds: Array.isArray(r.zikirIds) ? r.zikirIds : [],
+          itemsConfig: parsedConfig,
+        };
+      });
     }
 
     return { zikirs, rangkaian };

@@ -76,7 +76,9 @@ export const ZikirCard: React.FC<ZikirCardProps> = ({ item, onSelect }) => {
           </span>
           <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1">
             <Hash className="w-3 h-3" />
-            {item.targetCount}x
+            {item.hasTargetCount === false || item.targetCount <= 0
+              ? 'Tanpa Bilangan'
+              : `${item.targetCount}x`}
           </span>
         </div>
 
@@ -107,7 +109,11 @@ export const ZikirCard: React.FC<ZikirCardProps> = ({ item, onSelect }) => {
       {/* Footer Info & Action */}
       <div className="pt-3 mt-3 border-t border-slate-100 flex items-center justify-between text-xs">
         <span className="text-[11px] text-slate-400 line-clamp-1 max-w-[65%]">
-          {item.dalil || item.repeatNote || 'Riwayat Shahih'}
+          {!item.hideHadits && item.dalil
+            ? item.dalil
+            : !item.hideFadhilah && item.fadhilah
+            ? `✨ ${item.fadhilah}`
+            : item.repeatNote || 'Riwayat Shahih'}
         </span>
         <button className="flex items-center gap-1 font-bold text-emerald-700 group-hover:text-emerald-800 transition-colors">
           <span>Mulai Zikir</span>

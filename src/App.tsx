@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ZikirItem, RangkaianItem, GoogleSheetConfig } from './types/zikir';
+import { ZikirItem, RangkaianItem, RangkaianZikirEntry, GoogleSheetConfig } from './types/zikir';
 import {
   getStoredZikirItems,
   saveStoredZikirItems,
@@ -35,6 +35,7 @@ export default function App() {
   const [activeView, setActiveView] = useState<'home' | 'session'>('home');
   const [activeZikir, setActiveZikir] = useState<ZikirItem | null>(null);
   const [activePlaylist, setActivePlaylist] = useState<ZikirItem[]>([]);
+  const [activePlaylistConfigMap, setActivePlaylistConfigMap] = useState<Record<string, RangkaianZikirEntry>>({});
   const [currentIndex, setCurrentIndex] = useState(0);
 
   // Audio & Haptic state
@@ -145,6 +146,7 @@ export default function App() {
   const handleStartSingleZikir = (item: ZikirItem) => {
     setActiveZikir(item);
     setActivePlaylist([item]);
+    setActivePlaylistConfigMap({});
     setCurrentIndex(0);
     setActiveView('session');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -159,6 +161,7 @@ export default function App() {
     if (itemsInPlaylist.length > 0) {
       setActivePlaylist(itemsInPlaylist);
       setActiveZikir(itemsInPlaylist[0]);
+      setActivePlaylistConfigMap(rangkaian.itemsConfig || {});
       setCurrentIndex(0);
       setActiveView('session');
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -269,6 +272,7 @@ export default function App() {
           <ZikirCounterView
             item={activeZikir}
             playlistItems={activePlaylist}
+            playlistConfigMap={activePlaylistConfigMap}
             currentIndex={currentIndex}
             onNextZikir={handleNextInPlaylist}
             onBackToHome={() => setActiveView('home')}

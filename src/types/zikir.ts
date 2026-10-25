@@ -11,8 +11,20 @@ export interface ZikirItem {
   dalil: string;
   fadhilah?: string;
   targetCount: number;
+  hasTargetCount?: boolean;
+  hideHadits?: boolean;
+  hideFadhilah?: boolean;
   repeatNote?: string;
   source?: string;
+}
+
+export interface RangkaianZikirEntry {
+  zikirId: string;
+  hasTargetCount?: boolean;
+  customTargetCount?: number;
+  hideHadits?: boolean;
+  hideFadhilah?: boolean;
+  customFadhilah?: string;
 }
 
 export interface RangkaianItem {
@@ -21,6 +33,7 @@ export interface RangkaianItem {
   description: string;
   iconEmoji: string;
   zikirIds: string[];
+  itemsConfig?: Record<string, RangkaianZikirEntry>;
   order: number;
   colorTheme?: string;
 }
